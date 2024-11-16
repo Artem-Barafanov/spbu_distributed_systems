@@ -1,6 +1,7 @@
 import random
 import time
 
+
 class Board:
     def __init__(self, width, height):
         self.width = width
@@ -9,6 +10,7 @@ class Board:
 
     def __len__(self):
         return len(self.field)
+
 
 class Robot:
     def __init__(self, speed: int, size: int, coordinates: list[int], board: Board):
@@ -35,7 +37,9 @@ class Robot:
 
     def paint(self):
         self.board.field[self.coordinates[1]][self.coordinates[0]] = 1
-        print(f"Robot painted cell at ({self.coordinates[0]}, {self.coordinates[1]})")  # Отладочный вывод
+        print(
+            f"Robot painted cell at ({self.coordinates[0]}, {self.coordinates[1]})"
+        )  # Отладочный вывод
 
     def random_direction(self):
         return random.choice(["left", "right", "up", "down"])
