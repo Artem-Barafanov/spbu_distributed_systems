@@ -1,6 +1,5 @@
 import tkinter as tk
 
-
 class Graphics:
     def __init__(self, width, height, cell_size, grid_data=[]):
         self.width = width
@@ -29,19 +28,29 @@ class Graphics:
     def draw_cells(self):
         for row in range(len(self.grid_data)):
             for col in range(len(self.grid_data[row])):
+                x1 = col * self.cell_size
+                y1 = row * self.cell_size
+                x2 = x1 + self.cell_size
+                y2 = y1 + self.cell_size
                 if self.grid_data[row][col] == 1:
-                    x1 = col * self.cell_size
-                    y1 = row * self.cell_size
-                    x2 = x1 + self.cell_size
-                    y2 = y1 + self.cell_size
                     self.canvas.create_rectangle(
                         x1, y1, x2, y2, fill="red", outline="", tags="cell"
+                    )
+                elif self.grid_data[row][col] == 2:
+                    self.canvas.create_rectangle(
+                        x1, y1, x2, y2, fill="black", outline="", tags="obstacle"
                     )
 
     def update_cells(self, x, y):
         self.grid_data[y][x] = 1
         self.draw_cells()
         self.root.update()
+
+    def set_obstacles(self, obstacles):
+        for obstacle in obstacles:
+            x, y = obstacle
+            self.grid_data[y][x] = 2
+        self.draw_cells()
 
     def stop_cadre(self):
         self.root.mainloop()
