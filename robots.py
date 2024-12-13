@@ -25,13 +25,13 @@ class Robot:
         neighbors = [
             (x + dx, y + dy)
             for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]
-            if 0 <= x + dx < self.board.width and 0 <= y + dy < self.board.height
+            if (0 <= x + dx) and (x + dx < self.board.width) and (0 <= y + dy) and (y + dy) < self.board.height
         ]
         return neighbors
 
     def is_valid_move(self, direction):
         x, y = direction
-        return self.board.field[y][x] == 0
+        return self.board.field[y][x] != 2  
 
     def walk(self, direction, steps):
         dx, dy = direction
@@ -40,6 +40,10 @@ class Robot:
                 self.coordinates[0] = dx
                 self.coordinates[1] = dy
                 self.update_local_map()
+
+    def get_coordinates(self):
+        """Возвращает текущие координаты робота."""
+        return self.coordinates
 
     def paint(self):
         x, y = self.coordinates

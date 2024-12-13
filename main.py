@@ -1,4 +1,3 @@
-import tkinter as tk
 import robots
 import graphics
 import zmq
@@ -32,9 +31,9 @@ robots_list = [
     for data in robots_data
 ]
 
-robot_ports = [5555, 5556, 5557, 5558, 5559, 5560, 5561, 5562]
+robot_ports = [5555, 5563, 5557, 5558, 5559, 5560, 5561, 5562]
 
-gossip_interval = 2 # секунды
+gossip_interval = 2  # секунды
 
 def robot_server(robot, port):
     context = zmq.Context()
@@ -64,11 +63,13 @@ def robot_client(target_ip, target_port, task):
     return socket.recv_json()
 
 def robot_behavior(robot, port, robot_id):
+    """
+    Управляет поведением робота, обновляет его координаты и передает их для отображения.
+    """
     server_thread = threading.Thread(target=robot_server, args=(robot, port))
     server_thread.daemon = True
     server_thread.start()
 
-    # Gossip
     def gossip():
         random_peer_port = random.choice([p for p in robot_ports if p != port])
         try:
@@ -83,32 +84,51 @@ def robot_behavior(robot, port, robot_id):
     while True:
         neighbors = robot.get_neighbors()
         unpainted_neighbors = [neighbor for neighbor in neighbors if robot.board.field[neighbor[1]][neighbor[0]] == 0]
+        # print(f"neighbors: {neighbors}\nunpainted_neighbors: {unpainted_neighbors}")
 
-        if unpainted_neighbors:
-            direction = random.choice(unpainted_neighbors)
-        else:
-            direction = random.choice(neighbors)
+        # Изменяем логику движения: если нет незакрашенных клеток, двигаемся в случайном соседнем направлении
+        try:
+            direction = random.choice(unpainted_neighbors)  # Выбираем случайное направление среди всех соседей
+        except IndexError:
+            print("Нет не закрашенных соседей!!!")
+            direction = random.choice(neighbors)  # Если есть незакрашенные клетки, идем туда
 
         robot.walk(direction, 1)
         robot.paint()
-        update_queue.put((robot.coordinates[0], robot.coordinates[1], "robot", robot_id))
+
+        x, y = robot.coordinates
+        update_queue.put((x, y, "robot", robot_id))  # Добавляем обновление координат в очередь
 
         time.sleep(0.5)
 
-def run_graphic_update():
-    robot_markers = {}
 
-    while True:
-        update = update_queue.get()
-        if update is None:
-            break
-        x, y, tag, *extra = update
-        if tag == "robot":
-            robot_id = extra[0]
-            if robot_id in robot_markers:
-                graphic.canvas.delete(robot_markers[robot_id])
-            robot_markers[robot_id] = graphic.draw_robot(x, y, robot_id)
-            graphic.update_cells(x, y, color="blue")
+def run_graphic_update():
+    def update_robots():
+        for robot_id, coordinates in robot_positions.items():
+            x, y = coordinates
+            graphic.update_robot_position(robot_id, x, y)
+
+        painted_cells = []
+        for y in range(board_height):
+            for x in range(board_width):
+                if board.field[y][x] == 1:
+                    painted_cells.append((x, y))
+
+        graphic.mark_painted(painted_cells)
+        graphic.refresh()
+
+    robot_positions = {}
+
+    def get_updates():
+        while True:
+            update = update_queue.get()
+            if update is None:
+                break
+            x, y, tag, robot_id = update
+            robot_positions[robot_id] = (x, y)
+            graphic.root.after(0, update_robots)
+
+    threading.Thread(target=get_updates, daemon=True).start()
 
 if __name__ == "__main__":
     for i, robot in enumerate(robots_list):
