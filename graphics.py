@@ -1,56 +1,51 @@
 import tkinter as tk
 
 class Graphics:
-    def __init__(self, width, height, cell_size, grid_data=[]):
+    def __init__(self, width, height, cell_size):
         self.width = width
         self.height = height
         self.cell_size = cell_size
-
         self.root = tk.Tk()
-        self.root.title("Сетка 100x100")
-
         self.canvas = tk.Canvas(
             self.root, width=self.width, height=self.height, bg="white"
         )
         self.canvas.pack()
-
-        self.grid_data = [
-            [0] * (width // cell_size) for _ in range(height // cell_size)
-        ]
-        self.draw_grid()
-
-    def draw_grid(self):
-        for x in range(0, self.width, self.cell_size):
-            self.canvas.create_line(x, 0, x, self.height, fill="black")
-        for y in range(0, self.height, self.cell_size):
-            self.canvas.create_line(0, y, self.width, y, fill="black")
-
-    def draw_cells(self):
-        for row in range(len(self.grid_data)):
-            for col in range(len(self.grid_data[row])):
-                x1 = col * self.cell_size
-                y1 = row * self.cell_size
-                x2 = x1 + self.cell_size
-                y2 = y1 + self.cell_size
-                if self.grid_data[row][col] == 1:
-                    self.canvas.create_rectangle(
-                        x1, y1, x2, y2, fill="red", outline="", tags="cell"
-                    )
-                elif self.grid_data[row][col] == 2:
-                    self.canvas.create_rectangle(
-                        x1, y1, x2, y2, fill="black", outline="", tags="obstacle"
-                    )
-
-    def update_cells(self, x, y):
-        self.grid_data[y][x] = 1
-        self.draw_cells()
-        self.root.update()
+        self.obstacles = []
 
     def set_obstacles(self, obstacles):
-        for obstacle in obstacles:
-            x, y = obstacle
-            self.grid_data[y][x] = 2
-        self.draw_cells()
+        self.obstacles = obstacles
+        for x, y in obstacles:
+            self._draw_cell(x, y, "black")
 
-    def stop_cadre(self):
-        self.root.mainloop()
+    def update_cells(self, x, y, color="blue"):
+        self._draw_cell(x, y, color)
+
+    def draw_robot(self, x, y, robot_id):
+        """Рисует маркер робота на клетке."""
+        x1 = x * self.cell_size
+        y1 = y * self.cell_size
+        x2 = x1 + self.cell_size
+        y2 = y1 + self.cell_size
+        # Рисуем круг и текст с номером робота поверх закрашенной клетки
+        marker = self.canvas.create_oval(x1 + 5, y1 + 5, x2 - 5, y2 - 5, fill="red")
+        self.canvas.create_text(x1 + self.cell_size // 2, y1 + self.cell_size // 2, text=str(robot_id), fill="white")
+        return marker
+
+    def highlight_interaction(self, x1, y1, x2, y2):
+        """Draw a line or marker to indicate interaction between robots."""
+        x1_center = x1 * self.cell_size + self.cell_size // 2
+        y1_center = y1 * self.cell_size + self.cell_size // 2
+        x2_center = x2 * self.cell_size + self.cell_size // 2
+        y2_center = y2 * self.cell_size + self.cell_size // 2
+        self.canvas.create_line(
+            x1_center, y1_center, x2_center, y2_center, fill="red", width=2
+        )
+        self.root.update()
+
+    def _draw_cell(self, x, y, color):
+        x1 = x * self.cell_size
+        y1 = y * self.cell_size
+        x2 = x1 + self.cell_size
+        y2 = y1 + self.cell_size
+        self.canvas.create_rectangle(x1, y1, x2, y2, fill=color, outline="black")
+        self.root.update()
