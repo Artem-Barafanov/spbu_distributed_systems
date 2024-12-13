@@ -1,41 +1,80 @@
 import random
-import time
 
 class Board:
     def __init__(self, width, height):
         self.width = width
         self.height = height
-        self.field = [[0] * width for _ in range(height)]
-
-    def __len__(self):
-        return len(self.field)
+        self.field = [[0 for _ in range(width)] for _ in range(height)]
 
 class Robot:
-    def __init__(self, speed: int, size: int, coordinates: list[int], board: Board):
-        self.speed: int = speed
-        self.size: int = size
-        self.coordinates: list[int] = coordinates
+    def __init__(self, speed, size, coordinates, board):
+        self.speed = speed
+        self.size = size
+        self.coordinates = coordinates
         self.board = board
+        self.local_map = [[0 for _ in range(board.width)] for _ in range(board.height)]
+        self.update_local_map()
 
-    def walk(self, direction: str, distance: int):
-        print(direction)
-        match direction:
-            case "left":
-                self.coordinates[0] -= distance
-            case "right":
-                self.coordinates[0] += distance
-            case "up":
-                self.coordinates[1] -= distance
-            case "down":
-                self.coordinates[1] += distance
+    def update_local_map(self):
+        x, y = self.coordinates
+        self.local_map[y][x] = 1
 
-        # Проверка, чтобы робот не выходил за пределы доски
-        self.coordinates[0] = max(0, min(self.coordinates[0], self.board.width - 1))
-        self.coordinates[1] = max(0, min(self.coordinates[1], self.board.height - 1))
+    def get_neighbors(self):
+        """Возвращает список соседних клеток."""
+        x, y = self.coordinates
+        neighbors = [
+            (x + dx, y + dy)
+            for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]
+            if (0 <= x + dx) and (x + dx < self.board.width) and (0 <= y + dy) and (y + dy) < self.board.height
+        ]
+        return neighbors
+
+    def is_valid_move(self, direction):
+        x, y = direction
+        return self.board.field[y][x] != 2
+
+    def walk(self, direction, steps):
+        dx, dy = direction
+        for _ in range(steps):
+            if self.is_valid_move((dx, dy)):
+                self.coordinates[0] = dx
+                self.coordinates[1] = dy
+                self.update_local_map()
+
+    def get_coordinates(self):
+        """Возвращает текущие координаты робота."""
+        return self.coordinates
 
     def paint(self):
-        self.board.field[self.coordinates[1]][self.coordinates[0]] = 1
-        print(f"Robot painted cell at ({self.coordinates[0]}, {self.coordinates[1]})")  # Отладочный вывод
+        x, y = self.coordinates
+        self.board.field[y][x] = 1
 
-    def random_direction(self):
-        return random.choice(["left", "right", "up", "down"])
+    def exchange_information(self, other_robot):
+        """Merge local maps between robots."""
+        for y in range(self.board.height):
+            for x in range(self.board.width):
+                self.local_map[y][x] = max(
+                    self.local_map[y][x], other_robot.local_map[y][x]
+                )
+
+    def exchange_information_with_map(self, received_map):
+        """Обновляет локальную карту на основе полученной карты от другого робота."""
+        for y in range(self.board.height):
+            for x in range(self.board.width):
+                self.local_map[y][x] = max(self.local_map[y][x], received_map[y][x])
+
+    def update_map(self, updated_map):
+        """Обновляет локальную карту на основе полученной карты от другого робота."""
+        for y in range(self.board.height):
+            for x in range(self.board.width):
+                self.local_map[y][x] = max(self.local_map[y][x], updated_map[y][x])
+
+    def process_incoming_data(self, data):
+        """Process incoming map data from another robot."""
+        for y in range(len(data)):
+            for x in range(len(data[y])):
+                self.local_map[y][x] = max(self.local_map[y][x], data[y][x])
+
+    def send_data(self):
+        """Prepare local map data for transmission."""
+        return self.local_map

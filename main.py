@@ -1,103 +1,163 @@
 import robots
 import graphics
-from dask.distributed import Client, as_completed
+import zmq
 import threading
 import queue
 import time
-import matplotlib.pyplot as plt
+import random
+import tkinter as tk
 
 board_width = 20
 board_height = 20
-graphic = graphics.Graphics(800, 800, 40)
+cell_size = 40
+graphic = graphics.Graphics(800, 800, cell_size)
 
 update_queue = queue.Queue()
-plot_queue = queue.Queue()
+message_queue = queue.Queue()
 
 board = robots.Board(board_width, board_height)
 
+obstacles = [(random.randint(0, board_width - 1), random.randint(0, board_height - 1)) for _ in range(10)]
+for obstacle in obstacles:
+    board.field[obstacle[1]][obstacle[0]] = 2
+
+graphic.set_obstacles(obstacles)
+
 robots_data = [
-    {'speed': 1, 'size': 1, 'coordinates': [8, 3]},
-    {'speed': 1, 'size': 1, 'coordinates': [8, 9]},
-    {'speed': 1, 'size': 1, 'coordinates': [8, 16]}
+    {"speed": 1, "size": 1, "coordinates": [random.randint(0, board_width - 1), random.randint(0, board_height - 1)]}
+    for _ in range(8)
 ]
 
-robots = [robots.Robot(data['speed'], data['size'], data['coordinates'], board) for data in robots_data]
+robots_list = [
+    robots.Robot(data["speed"], data["size"], data["coordinates"], board)
+    for data in robots_data
+]
 
-def free_walk_with_update(robot):
-    direction = robot.random_direction()
-    robot.walk(direction, 1)
-    robot.paint()
-    time.sleep(2)
-    return robot.coordinates[0], robot.coordinates[1]
+robot_ports = [5555, 5563, 5557, 5558, 5559, 5560, 5561, 5562]
 
-def run_robots(update_queue, plot_queue):
-    client = Client()
-    scattered_robots = client.scatter(robots)  # Распространение роботов
+gossip_interval = 2  # секунды
 
-    futures = []
-    try:
-        while True:
-            for robot in scattered_robots:
-                future = client.submit(free_walk_with_update, robot)
-                futures.append(future)
+def robot_server(robot, port):
+    context = zmq.Context()
+    socket = context.socket(zmq.REP)
+    socket.bind(f"tcp://*:{port}")
 
-            for future in as_completed(futures):
-                x, y = future.result()  # Обработка результата
-                update_queue.put((x, y))  # Помещение координат в очередь
+    while True:
+        message = socket.recv_json()
+        task = message['task']
+        if task == "exchange_map":
+            received_map = message['map']
+            robot.exchange_information_with_map(received_map)
+            socket.send_json({'status': 'success', 'updated_map': robot.local_map})
+        elif task == "gossip":
+            received_map = message['map']
+            robot.update_map(received_map)
+            socket.send_json({'status': 'success'})
+            log_message(f"Robot on port {port} received gossip and updated map")
+        else:
+            socket.send_json({'status': 'unknown task'})
 
-                # Добавление данных для графика
-                plot_queue.put((time.time(), str(future)))  # Время и идентификатор задачи
+def robot_client(target_ip, target_port, task):
+    context = zmq.Context()
+    socket = context.socket(zmq.REQ)
+    socket.connect(f"tcp://{target_ip}:{target_port}")
+    socket.send_json(task)
+    return socket.recv_json()
 
-            futures.clear()
+def robot_behavior(robot, port, robot_id):
+    """
+    Управляет поведением робота, обновляет его координаты и передает их для отображения.
+    """
+    server_thread = threading.Thread(target=robot_server, args=(robot, port))
+    server_thread.daemon = True
+    server_thread.start()
 
-    except Exception as e:
-        print(f"Error in run_robots: {e}")
-    finally:
-        update_queue.put(None)
-        plot_queue.put(None)
-        client.close()
+    def gossip():
+        random_peer_port = random.choice([p for p in robot_ports if p != port])
+        try:
+            robot_client("127.0.0.1", random_peer_port, {"task": "gossip", "map": robot.local_map})
+            log_message(f"Robot {robot_id} sent gossip to port {random_peer_port}")
+        except Exception as e:
+            log_message(f"Failed to send gossip to port {random_peer_port}: {e}")
+        threading.Timer(gossip_interval, gossip).start()
 
-def run_graphic_update(graphic, update_queue):
-    try:
+    gossip()
+
+    while True:
+        neighbors = robot.get_neighbors()
+        unpainted_neighbors = [neighbor for neighbor in neighbors if robot.board.field[neighbor[1]][neighbor[0]] == 0]
+
+        try:
+            direction = random.choice(unpainted_neighbors)
+        except IndexError:
+            direction = random.choice(neighbors)
+
+        robot.walk(direction, 1)
+        robot.paint()
+
+        x, y = robot.coordinates
+        update_queue.put((x, y, "robot", robot_id))
+
+        time.sleep(0.5)
+
+def run_graphic_update():
+    def update_robots():
+        for robot_id, coordinates in robot_positions.items():
+            x, y = coordinates
+            graphic.update_robot_position(robot_id, x, y)
+
+        painted_cells = []
+        for y in range(board_height):
+            for x in range(board_width):
+                if board.field[y][x] == 1:
+                    painted_cells.append((x, y))
+
+        graphic.mark_painted(painted_cells)
+        graphic.refresh()
+
+    robot_positions = {}
+
+    def get_updates():
         while True:
             update = update_queue.get()
             if update is None:
                 break
-            x, y = update
-            graphic.update_cells(x, y)
-    except Exception as e:
-        print(f"Error in run_graphic_update: {e}")
+            x, y, tag, robot_id = update
+            robot_positions[robot_id] = (x, y)
+            graphic.root.after(0, update_robots)
 
-def update_plot(plot_queue):
-    plt.ion()  # Включение интерактивного режима
-    fig, ax = plt.subplots(figsize=(10, 6))
-    while True:
-        data = plot_queue.get()
-        if data is None:
-            break
-        time_stamp, task_id = data
-        ax.scatter(time_stamp, task_id, c='blue', s=10)
-        ax.set_title('Dask Task Stream')
-        ax.set_xlabel('Time')
-        ax.set_ylabel('Task')
-        plt.draw()
-        plt.pause(0.1)
-    plt.ioff()
-    plt.show()
+    threading.Thread(target=get_updates, daemon=True).start()
 
-if __name__ == '__main__':
-    robot_thread = threading.Thread(target=run_robots, args=(update_queue, plot_queue))
-    robot_thread.daemon = True
-    robot_thread.start()
+def update_message_window():
+    message_window = tk.Toplevel(graphic.root)
+    message_window.title("Messages")
+    message_text = tk.Text(message_window, wrap=tk.WORD, width=50, height=20)
+    message_text.pack()
 
-    graphic_thread = threading.Thread(target=run_graphic_update, args=(graphic, update_queue))
+    def get_messages():
+        while True:
+            message = message_queue.get()
+            if message is None:
+                break
+            message_text.insert(tk.END, message + "\n")
+            message_text.see(tk.END)
+
+    threading.Thread(target=get_messages, daemon=True).start()
+
+def log_message(message):
+    message_queue.put(message)
+
+if __name__ == "__main__":
+    for i, robot in enumerate(robots_list):
+        thread = threading.Thread(target=robot_behavior, args=(robot, robot_ports[i], i))
+        thread.daemon = True
+        thread.start()
+
+    graphic_thread = threading.Thread(target=run_graphic_update)
     graphic_thread.daemon = True
     graphic_thread.start()
 
-    plot_thread = threading.Thread(target=update_plot, args=(plot_queue,))
-    plot_thread.daemon = True
-    plot_thread.start()
-
+    update_message_window()
 
     try:
         graphic.root.mainloop()
@@ -105,7 +165,4 @@ if __name__ == '__main__':
         print("Program terminated by user")
     finally:
         update_queue.put(None)
-        plot_queue.put(None)
-        robot_thread.join()
-        graphic_thread.join()
-        plot_thread.join()
+        message_queue.put(None)
